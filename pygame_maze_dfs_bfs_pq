@@ -1,0 +1,168 @@
+# -*- coding: utf-8 -*-
+import pygame
+import random
+import time
+import heapq
+import copy
+
+# 색상 정의
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+GRAY = (200, 200, 200)
+GREEN = (0, 255, 0)
+RED = (255, 0, 0)
+BLUE = (0, 0, 255)
+YELLOW = (255, 255, 0)
+LIGHT_GRAY = (230, 230, 230)
+
+CELL_SIZE = 20
+TOP_MARGIN = 60
+FPS = 30
+
+# DFS 기반 미로 생성기
+def generate_maze_dfs(size=31):
+    maze = [['1' for _ in range(size)] for _ in range(size)]
+    def carve(x, y):
+        dirs = [(0, 2), (0, -2), (2, 0), (-2, 0)]
+        random.shuffle(dirs)
+        for dx, dy in dirs:
+            nx, ny = x + dx, y + dy
+            if 0 < nx < size and 0 < ny < size and maze[nx][ny] == '1':
+                maze[nx][ny] = '0'
+                maze[x + dx//2][y + dy//2] = '0'
+                carve(nx, ny)
+    sx, sy = 1, 1
+    maze[sx][sy] = 'e'
+    carve(sx, sy)
+    maze[size-2][size-2] = 'x'
+    return maze
+
+def find_points(maze):
+    start = end = None
+    for i, row in enumerate(maze):
+        for j, v in enumerate(row):
+            if v == 'e': start = (i, j)
+            if v == 'x': end = (i, j)
+    return start, end
+
+def draw(surface, maze, path, current, visited, offset, title):
+    title_font = pygame.font.Font(None, 24)
+
+    for i, row in enumerate(maze):
+        for j, val in enumerate(row):
+            x = offset + j * CELL_SIZE
+            y = i * CELL_SIZE + TOP_MARGIN
+            rect = pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
+            if val == '1': color = BLACK
+            elif val == 'e': color = GREEN
+            elif val == 'x': color = RED
+            else: color = GRAY
+            pygame.draw.rect(surface, color, rect)
+
+    max_visits = max(1, len(visited))
+    for idx, (x, y) in enumerate(visited):
+        shade = 255 - int((idx / max_visits) * 200)
+        color = (shade, shade, shade)
+        rect = pygame.Rect(offset + y*CELL_SIZE+2, x*CELL_SIZE+TOP_MARGIN+2, CELL_SIZE-4, CELL_SIZE-4)
+        pygame.draw.rect(surface, color, rect)
+
+    for (x, y) in path:
+        pygame.draw.rect(surface, BLUE, (offset + y*CELL_SIZE+6, x*CELL_SIZE+TOP_MARGIN+6, CELL_SIZE-12, CELL_SIZE-12))
+
+    if current:
+        x, y = current
+        pygame.draw.rect(surface, YELLOW, (offset + y*CELL_SIZE+6, x*CELL_SIZE+TOP_MARGIN+6, CELL_SIZE-12, CELL_SIZE-12))
+
+    surface.blit(title_font.render(title, True, BLACK), (offset + 10, 10))
+
+def run_algorithm(maze, algorithm, offset, surface, clock):
+    start, end = find_points(maze)
+    visited = set()
+    visited_order = []
+    time_start = time.time()
+    if algorithm == 'DFS':
+        frontier = [(start, [start])]
+    elif algorithm == 'BFS':
+        frontier = [(start, [start])]
+    elif algorithm == 'PQ':
+        frontier = [(0, start, [start])]
+
+    result = None
+    while frontier:
+        if algorithm == 'DFS':
+            (x, y), path = frontier.pop()
+        elif algorithm == 'BFS':
+            (x, y), path = frontier.pop(0)
+        elif algorithm == 'PQ':
+            _, (x, y), path = heapq.heappop(frontier)
+
+        if (x, y) in visited:
+            continue
+        visited.add((x, y))
+        visited_order.append((x, y))
+
+        draw(surface, maze, path, (x, y), visited_order, offset, algorithm)
+        pygame.display.update()
+        time.sleep(0.01)
+
+        if (x, y) == end:
+            total_time = time.time() - time_start
+            result = {'name': algorithm, 'path': path, 'visited': visited_order, 'time': total_time}
+            break
+
+        for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < len(maze) and 0 <= ny < len(maze[0]) and maze[nx][ny] != '1' and (nx, ny) not in visited:
+                new_path = path + [(nx, ny)]
+                if algorithm == 'PQ':
+                    h = abs(end[0] - nx) + abs(end[1] - ny)
+                    heapq.heappush(frontier, (len(new_path) + h, (nx, ny), new_path))
+                else:
+                    frontier.append(((nx, ny), new_path))
+
+    if result:
+        for i in range(len(result['path'])):
+            draw(surface, maze, result['path'][:i+1], None, result['visited'], offset, algorithm)
+            pygame.display.update()
+            time.sleep(0.01)
+        print(f"\n--- {algorithm} 결과 ---")
+        print(f"방문한 칸 수: {len(result['visited'])}")
+        print(f"경로 길이: {len(result['path'])}")
+        print(f"시간: {result['time']:.2f}초")
+        print("방문한 좌표:")
+        for coord in result['visited']:
+            print(coord, end=' ')
+        print("\n")
+        return result
+    return None
+
+def main():
+    pygame.init()
+    size = 31
+    maze = generate_maze_dfs(size)
+    width = CELL_SIZE * size * 3
+    height = CELL_SIZE * size + TOP_MARGIN + 20
+    screen = pygame.display.set_mode((width, height))
+    pygame.display.set_caption("Maze Comparison: DFS, BFS, PQ")
+    clock = pygame.time.Clock()
+
+    dfs_maze = copy.deepcopy(maze)
+    bfs_maze = copy.deepcopy(maze)
+    pq_maze  = copy.deepcopy(maze)
+
+    screen.fill(WHITE)
+    dfs_result = run_algorithm(dfs_maze, 'DFS', 0, screen, clock)
+    bfs_result = run_algorithm(bfs_maze, 'BFS', width//3, screen, clock)
+    pq_result  = run_algorithm(pq_maze,  'PQ',  2*width//3, screen, clock)
+
+    pygame.display.update()
+
+    waiting = True
+    while waiting:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                waiting = False
+    pygame.quit()
+
+if __name__ == "__main__":
+    main()
