@@ -1,0 +1,303 @@
+import javax.swing.*;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Graphics;
+import java.awt.Point;
+import java.awt.event.*;
+import java.io.File;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.Scanner;
+import java.util.Random;
+import java.util.Arrays;
+import java.util.Collections;
+
+// Drawable 인터페이스
+interface Drawable {
+    void draw(Graphics g, int tileSize);
+}
+
+// Character 추상 클래스
+abstract class Character implements Drawable {
+    protected int x, y;
+
+    public Character(int x, int y) {
+        this.x = x;
+        this.y = y;
+    }
+
+    public Point getPoint() {
+        return new Point(x, y);
+    }
+
+    public void move(int dx, int dy, int[][] maze) {
+        int nx = x + dx, ny = y + dy;
+        if (maze[ny][nx] == 0) {
+            x = nx;
+            y = ny;
+        }
+    }
+}
+
+// Player 클래스
+class Player extends Character {
+    public Player(int x, int y) {
+        super(x, y);
+    }
+
+    @Override
+    public void draw(Graphics g, int tileSize) {
+        int px = x * tileSize;
+        int py = y * tileSize;
+        g.setColor(new Color(135, 206, 250));
+        g.fillRoundRect(px + 4, py + 4, tileSize - 8, tileSize - 8, 10, 10);
+        g.setColor(Color.BLACK);
+        g.fillOval(px + 8, py + 10, 5, 5);
+        g.fillOval(px + 18, py + 10, 5, 5);
+        g.drawArc(px + 12, py + 18, 10, 6, 0, -180);
+    }
+}
+
+// Coin 클래스
+class Coin extends Character {
+    public Coin(int x, int y) {
+        super(x, y);
+    }
+
+    @Override
+    public void draw(Graphics g, int tileSize) {
+        g.setColor(Color.YELLOW);
+        g.fillOval(x * tileSize + 8, y * tileSize + 8, 15, 15);
+    }
+}
+
+// 미로 생성기
+class MazeGenerator {
+    private static int[][] maze;
+    private static List<Point> path;
+    private static Set<Point> solutionSet;
+
+    public static int[][] generateMaze(int rows, int cols) {
+        maze = new int[rows][cols];
+        for (int i = 0; i < rows; i++) Arrays.fill(maze[i], 1);
+        path = new ArrayList<>();
+        solutionSet = new HashSet<>();
+        dfs(1, 1, rows, cols);
+        maze[rows - 2][cols - 2] = 0;
+        return maze;
+    }
+
+    private static void dfs(int x, int y, int rows, int cols) {
+        maze[y][x] = 0;
+        Point current = new Point(x, y);
+        path.add(current);
+        solutionSet.add(current);
+        int[][] dirs = {{0, 2}, {0, -2}, {2, 0}, {-2, 0}};
+        Collections.shuffle(Arrays.asList(dirs));
+        for (int[] d : dirs) {
+            int nx = x + d[0], ny = y + d[1];
+            if (ny > 0 && ny < rows && nx > 0 && nx < cols && maze[ny][nx] == 1) {
+                maze[y + d[1] / 2][x + d[0] / 2] = 0;
+                dfs(nx, ny, rows, cols);
+            }
+        }
+    }
+
+    public static List<Point> getDFSPath() {
+        return new ArrayList<>(path);
+    }
+
+    public static Set<Point> getSolutionSet() {
+        return new HashSet<>(solutionSet);
+    }
+}
+
+// 메인 게임 클래스
+public class MazeGame extends JPanel implements ActionListener, KeyListener, MouseListener {
+    private final int TILE_SIZE = 30, ROWS = 25, COLS = 25;
+    private Timer timer;
+    private int[][] maze;
+    private Player player;
+    private List<Coin> coins;
+    private int score = 0, energy = 3, stage = 1;
+    private long startTime;
+    private String playerName = "";
+    private boolean gameStarted = false;
+
+    public MazeGame() {
+        setPreferredSize(new Dimension(COLS * TILE_SIZE, ROWS * TILE_SIZE + 60));
+        setBackground(Color.WHITE);
+        setFocusable(true);
+        addKeyListener(this);
+        addMouseListener(this);
+        timer = new Timer(100, this);
+        showStartMenu();
+    }
+
+    private void showStartMenu() {
+        playerName = JOptionPane.showInputDialog(this, "플레이어 이름을 입력하세요:");
+        String[] options = {"새로 시작", "불러오기", "종료"};
+        int choice = JOptionPane.showOptionDialog(this, "미로 게임을 시작할까요?", "시작",
+                JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE, null, options, options[0]);
+
+        if (choice == 0) startNewGame();
+        else if (choice == 1) loadGame();
+        else System.exit(0);
+    }
+
+    public void startGameLoop() {
+        timer.start();
+    }
+
+    private void startNewGame() {
+        maze = MazeGenerator.generateMaze(ROWS, COLS);
+        player = new Player(1, 1);
+        coins = new ArrayList<>();
+        generateCoins(5 + stage);
+        score = 0;
+        energy = 3;
+        stage = 1;
+        startTime = System.currentTimeMillis();
+        gameStarted = true;
+    }
+
+    private void generateCoins(int count) {
+        Random rand = new Random();
+        while (coins.size() < count) {
+            int x = rand.nextInt(COLS - 2) + 1;
+            int y = rand.nextInt(ROWS - 2) + 1;
+            if (maze[y][x] == 0 && !(x == 1 && y == 1)) {
+                coins.add(new Coin(x, y));
+            }
+        }
+    }
+
+    @Override
+    public void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        if (!gameStarted) return;
+
+        for (int i = 0; i < ROWS; i++)
+            for (int j = 0; j < COLS; j++)
+                if (maze[i][j] == 1)
+                    g.fillRect(j * TILE_SIZE, i * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+
+        g.setColor(Color.RED);
+        g.fillRect((COLS - 2) * TILE_SIZE, (ROWS - 2) * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+
+        for (Coin c : coins)
+            c.draw(g, TILE_SIZE);
+
+        player.draw(g, TILE_SIZE);
+
+        g.setColor(Color.BLACK);
+        g.drawString("이름: " + playerName, 10, ROWS * TILE_SIZE + 20);
+        g.drawString("에너지: " + energy, 120, ROWS * TILE_SIZE + 20);
+        g.drawString("점수: " + score, 230, ROWS * TILE_SIZE + 20);
+        g.drawString("스테이지: " + stage, 340, ROWS * TILE_SIZE + 20);
+        g.drawString("시간: " + ((System.currentTimeMillis() - startTime) / 1000) + "s", 460, ROWS * TILE_SIZE + 20);
+    }
+
+    @Override
+    public void actionPerformed(ActionEvent e) {
+        if (!gameStarted) return;
+
+        coins.removeIf(c -> {
+            if (player.getPoint().equals(c.getPoint())) {
+                score += 10;
+                return true;
+            }
+            return false;
+        });
+
+        if (player.x == COLS - 2 && player.y == ROWS - 2) {
+            int res = JOptionPane.showConfirmDialog(this, "클리어! 다음 스테이지로 갈까요?", "클리어", JOptionPane.YES_NO_OPTION);
+            if (res == JOptionPane.YES_OPTION) {
+                saveGame();
+                stage++;
+                maze = MazeGenerator.generateMaze(ROWS, COLS);
+                player = new Player(1, 1);
+                coins.clear();
+                generateCoins(5 + stage);
+                startTime = System.currentTimeMillis();
+                gameStarted = true;
+            } else System.exit(0);
+        }
+
+        repaint();
+    }
+
+    @Override
+    public void keyPressed(KeyEvent e) {
+        if (!gameStarted) return;
+        switch (e.getKeyCode()) {
+            case KeyEvent.VK_LEFT -> player.move(-1, 0, maze);
+            case KeyEvent.VK_RIGHT -> player.move(1, 0, maze);
+            case KeyEvent.VK_UP -> player.move(0, -1, maze);
+            case KeyEvent.VK_DOWN -> player.move(0, 1, maze);
+        }
+        repaint();
+    }
+
+    @Override
+    public void mouseClicked(MouseEvent e) {
+        if (!gameStarted) return;
+        int mx = e.getX() / TILE_SIZE;
+        int my = e.getY() / TILE_SIZE;
+        if (mx >= 0 && mx < COLS && my >= 0 && my < ROWS && maze[my][mx] == 0) {
+            player.x = mx;
+            player.y = my;
+        }
+        repaint();
+    }
+
+    private void saveGame() {
+        try (PrintWriter pw = new PrintWriter("save.txt")) {
+            pw.println(playerName);
+            pw.println(score);
+            pw.println(energy);
+            pw.println(stage);
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(this, "저장 실패");
+        }
+    }
+
+    private void loadGame() {
+        try (Scanner sc = new Scanner(new File("save.txt"))) {
+            playerName = sc.nextLine();
+            score = Integer.parseInt(sc.nextLine());
+            energy = Integer.parseInt(sc.nextLine());
+            stage = Integer.parseInt(sc.nextLine());
+            maze = MazeGenerator.generateMaze(ROWS, COLS);
+            player = new Player(1, 1);
+            coins = new ArrayList<>();
+            generateCoins(5 + stage);
+            startTime = System.currentTimeMillis();
+            gameStarted = true;
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "불러오기 실패. 새로 시작합니다.");
+            startNewGame();
+        }
+    }
+
+    public void keyReleased(KeyEvent e) {}
+    public void keyTyped(KeyEvent e) {}
+    public void mousePressed(MouseEvent e) {}
+    public void mouseReleased(MouseEvent e) {}
+    public void mouseEntered(MouseEvent e) {}
+    public void mouseExited(MouseEvent e) {}
+
+    public static void main(String[] args) {
+        JFrame frame = new JFrame("미로 게임");
+        MazeGame game = new MazeGame();
+        frame.setContentPane(game);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.pack();
+        frame.setVisible(true);
+        game.startGameLoop();
+    }
+}
